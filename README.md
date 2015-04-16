@@ -1,13 +1,15 @@
 # Play framework
 
-Tips and tricks I've learned while developing a play application targeting `WebLogic 10.3`, `Java 6` and `Oracle Database`.
+Tips and tricks I've learned while developing a play application targeting `WebLogic 12.1`, `Java 7` and `Oracle Database`.
+
+*Note:* This was tested with `Play 2.1.3`. This may not work with more recent versions of `Play`.
 
 1. [Disabling logging completely](#disabling-logging)
 2. [Writing a custom Ebean plugin to use J2EE data source](#custom-ebean-plugin)
 3. [Environment specific configuration file](#environment-specific-configuration)
 4. [Custom handler for bad requests, on errors (500) and not found (404)](#custom-handlers)
 5. [Helper methods](#helper-methods)
-6. [Publishing under Weblogic 10.3](#publishing-under-weblogic-103)
+6. [Publishing under Weblogic 12.1](#publishing-under-weblogic-121)
 	1. [Requirements](#requirements)
 	2. [Instructions](#instructions)
 	3. [Ebean hack](#ebean-hack)
@@ -16,15 +18,15 @@ Tips and tricks I've learned while developing a play application targeting `WebL
 
 Create `conf/application-logger.xml` with the following
 
-```xml	
+```xml
 <configuration>
     <root level="OFF"></root>
 </configuration>
-```	
+```
 
 ## <a name="custom-ebean-plugin"></a>Writing a custom Ebean plugin to use J2EE data source
 
-If you develop for `WebLogic 10.3`, chances are you'll want to use the data source it can provide you so that you do not need to hard code credentials in the code.
+If you develop for `WebLogic 12.1`, chances are you'll want to use the data source it can provide you so that you do not need to hard code credentials in the code.
 
 To do so, you'll want to create a play plugin that will replace the existing Ebean plugin, providing you the same functionalities but using the datasource instead of play's `BoneCP`.
 
@@ -206,7 +208,7 @@ Next, you want to follow the [Ebean hack](#ebean-hack) section.
 
 ## <a name="environment-specific-configuration"></a>Environment specific configuration file
 
-This will allow you to have separate files for separate environment. The environment available are `dev`, `test` and `production`. 
+This will allow you to have separate files for separate environment. The environment available are `dev`, `test` and `production`.
 
 - `conf/application.conf` (default values)
 - `conf/application.dev.conf`
@@ -215,7 +217,7 @@ This will allow you to have separate files for separate environment. The environ
 
 In `app/Global.scala`, add the following
 
-```java	
+```java
 import com.typesafe.config.ConfigFactory
 import java.io.File
 import play.core.j._
@@ -240,7 +242,7 @@ object Global extends GlobalSettings
 
 In `app/Global.scala`, add the following
 
-```java	
+```java
 import com.typesafe.config.ConfigFactory
 import java.io.File
 import play.core.j._
@@ -278,7 +280,7 @@ object Global extends GlobalSettings
 
 The following is a list of methods you may find useful at some point during development. Most are small utilities functions that will provide you with some information about the framework.
 
-```java	
+```java
 public static boolean isDev() {
 	return play.api.Play.isDev(play.api.Play.current());
 }
@@ -290,9 +292,9 @@ public static boolean isTest() {
 public static boolean isProd() {
 	return play.api.Play.isProd(play.api.Play.current());
 }
-```	
+```
 
-## <a name="publishing-under-weblogic-103"></a>Publishing under Weblogic 10.3
+## <a name="publishing-under-weblogic-121"></a>Publishing under Weblogic 12.1
 
 ### <a name="requirements"></a>Requirements
 
@@ -300,9 +302,39 @@ public static boolean isProd() {
 
 ### <a name="instructions"></a>Instructions
 
-To prepare a war file for deployment onto a `Weblogic` instance, you will want to use play2war. The plugin will provide you with the functionality necessary to generate a .war file. 
+To prepare a war file for deployment onto a `Weblogic` instance, you will want to use play2war. The plugin will provide you with the functionality necessary to generate a .war file.
 
 If you plan to use Ebean for your model/ORM needs, read up on the [Ebean hack](#ebean-hack), which you will most likely need to do.
+
+## Build.scala
+
+You will want to filter the tyrex library as it provides a JNDI provider in its jndi.properties which will conflict with using Weblogic's JNDI.
+
+```
+java.naming.factory.initial=tyrex.naming.MemoryContextFactory
+```
+
+In your `project/Build.scala`, make sure you have the following:
+
+
+```scala
+import com.github.play2war.plugin._
+
+object ApplicationBuild extends Build {
+
+  val main = PlayProject(appName, appVersion, appDependencies, mainLang = JAVA)
+    .settings(Play2WarPlugin.play2WarSettings: _*)
+
+    .settings(
+      Play2WarKeys.servletVersion := "3.0"
+    )
+
+    .settings(
+      Play2WarKeys.filteredArtifacts := Seq(("javax.servlet", "servlet-api"), ("tyrex", "tyrex"))
+    )
+
+}
+```
 
 ## <a name="ebean-hack"></a>Ebean hack
 
@@ -310,7 +342,7 @@ In production mode, Ebean will have difficulties finding the model files due to 
 
 In a generateWar.sh file, have the following
 
-```bash	
+```bash
 #!/bin/bash
 
 PLAY=`which play`
@@ -345,3 +377,24 @@ $PLAY war
 ```
 
 This script will make sure to remove the default org.h2.Driver/jdbc:h2:mem:play db details. Furthermore, it will also replace `ebean.default="models.*"` with `customEbean.default="models.User"`. Note that this change will work with the change mentioned in the [Writing a custom Ebean plugin to use J2EE data source](#custom-ebean-plugin) section. If you do not want to use that change, but you do face the problem where it cannot find models, you can replace `customEbean.default` with `ebean.default`.
+
+## war/WEB-INF/weblogic.xml
+
+Create `war/WEB-INF/weblogic.xml` at the root of your play project. In it, put the following:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<wls:weblogic-web-app
+        xmlns:wls="http://xmlns.oracle.com/weblogic/weblogic-web-app"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://java.sun.com/xml/ns/javaee http://java.sun.com/xml/ns/javaee/ejb-jar_3_0.xsd http://xmlns.oracle.com/weblogic/weblogic-web-app http://xmlns.oracle.com/weblogic/weblogic-web-app/1.4/weblogic-web-app.xsd">
+    <wls:container-descriptor>
+        <wls:prefer-application-packages>
+            <wls:package-name>org.slf4j</wls:package-name>
+        </wls:prefer-application-packages>
+    </wls:container-descriptor>
+</wls:weblogic-web-app>
+```
+
+This will make sure to use play's slf4j package over Weblogic's.
+
